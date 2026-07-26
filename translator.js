@@ -6,16 +6,16 @@ const GEMINI_MODEL =
   process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 
 const ai = GEMINI_API_KEY
-  ? new GoogleGenAI({ apiKey: GEMINI_API_KEY })
+  ? new GoogleGenAI({
+      apiKey: GEMINI_API_KEY
+    })
   : null;
 
 if (!GEMINI_API_KEY) {
   console.warn(
-    "GEMINI_API_KEY is missing. Translation will not work until it is set."
+    "GEMINI_API_KEY is missing."
   );
 }
-
-const cache = new Map();
 
 /*
 |--------------------------------------------------------------------------
@@ -23,7 +23,7 @@ const cache = new Map();
 |--------------------------------------------------------------------------
 */
 
-// Maximum subtitle dialogue lines in ONE Gemini API request.
+// 1000 subtitle cues = 1 Gemini API request
 const BATCH_SIZE = 1000;
 
 /*
@@ -33,7 +33,7 @@ const BATCH_SIZE = 1000;
 */
 
 const LANGUAGE_NAMES = {
-  auto: "the automatically detected source language",
+  auto: "automatically detected source language",
 
   eng_Latn: "English",
   zho_Hans: "Simplified Chinese",
@@ -56,47 +56,22 @@ const LANGUAGE_NAMES = {
   tam_Taml: "Tamil",
   tel_Telu: "Telugu",
   tha_Thai: "Thai",
-  arb_Arab: "Arabic",
-
-  en: "English",
-  zh: "Chinese",
-  "zh-CN": "Simplified Chinese",
-  "zh-TW": "Traditional Chinese",
-  hi: "Hindi",
-  ja: "Japanese",
-  ko: "Korean",
-  es: "Spanish",
-  fr: "French",
-  de: "German",
-  pt: "Portuguese",
-  it: "Italian",
-  ru: "Russian",
-  tr: "Turkish",
-  id: "Indonesian",
-  vi: "Vietnamese",
-  bn: "Bengali",
-  ur: "Urdu",
-  mr: "Marathi",
-  ta: "Tamil",
-  te: "Telugu",
-  th: "Thai",
-  ar: "Arabic"
+  arb_Arab: "Arabic"
 };
 
 function languageName(code) {
   return (
     LANGUAGE_NAMES[code] ||
-    String(code || "the target language")
+    String(
+      code ||
+      "the target language"
+    )
   );
 }
 
-/*
-|--------------------------------------------------------------------------
-| ROMAN HINDI
-|--------------------------------------------------------------------------
-*/
-
-function isRomanHindiMode(targetMode) {
+function isRomanHindiMode(
+  targetMode
+) {
   return (
     targetMode === "roman_hindi" ||
     targetMode === "romanHindi"
@@ -105,20 +80,30 @@ function isRomanHindiMode(targetMode) {
 
 /*
 |--------------------------------------------------------------------------
-| SINGLE TEXT TRANSLATION
+| Single Text Translation
 |--------------------------------------------------------------------------
 */
 
-async function translateWithGemini(
+async function translateText(
   text,
   srcLang,
   tgtLang,
-  targetMode = "native"
+  options = {}
 ) {
   if (!ai) {
     throw new Error(
-      "GEMINI_API_KEY is missing. Please add GEMINI_API_KEY in Render Environment Variables."
+      "GEMINI_API_KEY is missing. Please add it in Render Environment Variables."
     );
+  }
+
+  const targetMode =
+    options.targetMode || "native";
+
+  const cleanText =
+    String(text ?? "").trim();
+
+  if (!cleanText) {
+    return text;
   }
 
   const sourceLanguage =
@@ -127,15 +112,17 @@ async function translateWithGemini(
   let targetLanguage =
     languageName(tgtLang);
 
-  if (isRomanHindiMode(targetMode)) {
+  if (
+    isRomanHindiMode(targetMode)
+  ) {
     targetLanguage =
-      "Hindi written naturally using Roman/Latin letters";
+      "Hindi written naturally using Roman Hindi / Latin letters";
   }
 
   const prompt = `
 You are a professional subtitle translator.
 
-Translate the following subtitle text.
+Translate the following subtitle.
 
 Source language:
 ${sourceLanguage}
@@ -144,58 +131,110 @@ Target language:
 ${targetLanguage}
 
 Rules:
-1. Translate only the actual subtitle dialogue.
+1. Translate only the dialogue.
 2. Do not add explanations.
-3. Preserve names, numbers, punctuation, and meaning.
-4. Keep the translation natural and conversational.
-5. Do not include labels such as "Translation:".
-6. If the target is Roman Hindi, use natural Hindi written only with Latin/Roman letters.
-7. Do not use Devanagari characters for Roman Hindi.
-8. Return only the translated text.
+3. Keep the meaning natural and conversational.
+4. Preserve names and numbers.
+5. Preserve punctuation where appropriate.
+6. Do not add labels.
+7. If the target is Roman Hindi, use only Latin/Roman letters.
+8. Do not use Devanagari for Roman Hindi.
+9. Return only the translation.
 
 Subtitle:
-${text}
+${cleanText}
 `;
 
-  const response =
-    await ai.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: prompt
-    });
+  try {
+    const response =
+      await ai.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: prompt
+      });
 
-  const result =
-    String(response.text || "").trim();
+    const result =
+      String(
+        response.text || ""
+      ).trim();
 
-  if (!result) {
+    if (!result) {
+      throw new Error(
+        "Gemini returned an empty translation."
+      );
+    }
+
+    return result;
+
+  } catch (error) {
+    console.error(
+      "Gemini translation error:",
+      error
+    );
+
+    const message =
+      error?.message ||
+      "Unknown Gemini API error.";
+
+    if (
+      message.includes("429") ||
+      message.includes(
+        "RESOURCE_EXHAUSTED"
+      ) ||
+      message
+        .toLowerCase()
+        .includes("quota")
+    ) {
+      throw new Error(
+        "Gemini API quota exceeded. Please wait and try again later."
+      );
+    }
+
     throw new Error(
-      "Gemini returned an empty translation."
+      `Gemini translation failed: ${message}`
     );
   }
-
-  return result;
 }
 
 /*
 |--------------------------------------------------------------------------
-| BATCH TRANSLATION
+| Batch Translation
 |--------------------------------------------------------------------------
 |
-| 1000 subtitle lines = 1 Gemini API request
+| Input:
+|
+| [
+|   { id: 1, text: "Hello" },
+|   { id: 2, text: "How are you?" }
+| ]
+|
+| Output:
+|
+| [
+|   { id: 1, text: "Namaste" },
+|   { id: 2, text: "Aap kaise ho?" }
+| ]
 |
 |--------------------------------------------------------------------------
 */
 
-async function translateBatchWithGemini(
-  lines,
+async function translateBatch(
+  items,
   srcLang,
   tgtLang,
-  targetMode = "native"
+  options = {}
 ) {
   if (!ai) {
     throw new Error(
-      "GEMINI_API_KEY is missing. Please add GEMINI_API_KEY in Render Environment Variables."
+      "GEMINI_API_KEY is missing. Please add it in Render Environment Variables."
     );
   }
+
+  if (!items.length) {
+    return [];
+  }
+
+  const targetMode =
+    options.targetMode || "native";
 
   const sourceLanguage =
     languageName(srcLang);
@@ -203,27 +242,30 @@ async function translateBatchWithGemini(
   let targetLanguage =
     languageName(tgtLang);
 
-  if (isRomanHindiMode(targetMode)) {
+  if (
+    isRomanHindiMode(targetMode)
+  ) {
     targetLanguage =
-      "Hindi written naturally using Roman/Latin letters";
+      "Hindi written naturally using Roman Hindi / Latin letters";
   }
 
   /*
   |--------------------------------------------------------------------------
-  | Number every subtitle line
+  | Create JSON input
   |--------------------------------------------------------------------------
   */
 
-  const numberedLines = lines
-    .map((line, index) => {
-      return `[${index + 1}] ${line}`;
+  const input = items.map(
+    item => ({
+      id: item.id,
+      text: item.text
     })
-    .join("\n");
+  );
 
   const prompt = `
 You are a professional subtitle translator.
 
-Translate ALL subtitle lines below.
+Translate all subtitle entries in the JSON array below.
 
 Source language:
 ${sourceLanguage}
@@ -233,40 +275,28 @@ ${targetLanguage}
 
 IMPORTANT RULES:
 
-1. Translate every subtitle line.
-2. There are exactly ${lines.length} subtitle lines.
-3. Return exactly ${lines.length} translated lines.
-4. Keep the exact same order.
-5. Keep the numbering [1], [2], [3], etc.
-6. Never skip a subtitle.
-7. Never merge two subtitles.
-8. Never split one subtitle into multiple lines.
-9. Do not add explanations.
-10. Do not add "Translation:".
-11. Preserve names, numbers, punctuation, and meaning.
-12. Keep translations natural and conversational.
-13. If the target is Roman Hindi, use ONLY Latin/Roman letters.
-14. Do not use Devanagari characters for Roman Hindi.
-15. Return ONLY numbered translated subtitles.
+1. Translate every entry.
+2. Do not skip any entry.
+3. Do not merge entries.
+4. Do not split entries.
+5. Keep every "id" exactly unchanged.
+6. Keep the same number of entries.
+7. Translate only the "text" field.
+8. Preserve names and numbers.
+9. Keep the meaning natural and conversational.
+10. If the target is Roman Hindi, use ONLY Latin/Roman letters.
+11. Do not use Devanagari characters for Roman Hindi.
+12. Return ONLY valid JSON.
+13. Do not use Markdown code fences.
+14. Do not add explanations.
 
-Example:
-
-Input:
-[1] Hello
-[2] How are you?
-
-Output:
-[1] Namaste
-[2] Aap kaise ho?
-
-Now translate the following:
-
-${numberedLines}
+Input JSON:
+${JSON.stringify(input)}
 `;
 
   try {
     console.log(
-      `Sending ${lines.length} subtitle lines in one Gemini request...`
+      `Sending ${items.length} subtitle cues in one Gemini request.`
     );
 
     const response =
@@ -275,8 +305,10 @@ ${numberedLines}
         contents: prompt
       });
 
-    const result =
-      String(response.text || "").trim();
+    let result =
+      String(
+        response.text || ""
+      ).trim();
 
     if (!result) {
       throw new Error(
@@ -286,60 +318,116 @@ ${numberedLines}
 
     /*
     |--------------------------------------------------------------------------
-    | Parse numbered Gemini response
+    | Remove accidental Markdown fences
     |--------------------------------------------------------------------------
     */
 
-    const translated =
-      new Array(lines.length);
+    result =
+      result
+        .replace(
+          /^```json\s*/i,
+          ""
+        )
+        .replace(
+          /^```\s*/i,
+          ""
+        )
+        .replace(
+          /\s*```$/i,
+          ""
+        )
+        .trim();
 
-    const responseLines =
-      result.split(/\r?\n/);
+    let parsed;
 
-    for (const responseLine of responseLines) {
-      const match =
-        responseLine.match(
-          /^\s*\[(\d+)\]\s*(.*)$/
-        );
+    try {
+      parsed =
+        JSON.parse(result);
 
-      if (!match) {
-        continue;
-      }
+    } catch (parseError) {
+      throw new Error(
+        "Gemini returned invalid JSON for batch translation."
+      );
+    }
 
-      const number =
-        Number(match[1]);
-
-      const translatedText =
-        match[2].trim();
-
-      if (
-        number >= 1 &&
-        number <= lines.length
-      ) {
-        translated[number - 1] =
-          translatedText;
-      }
+    if (
+      !Array.isArray(parsed)
+    ) {
+      throw new Error(
+        "Gemini batch response is not an array."
+      );
     }
 
     /*
     |--------------------------------------------------------------------------
-    | Verify ALL lines were returned
+    | Validate response
     |--------------------------------------------------------------------------
     */
 
-    const missing =
-      translated.some(
-        value =>
-          typeof value !== "string"
-      );
-
-    if (missing) {
+    if (
+      parsed.length !==
+      items.length
+    ) {
       throw new Error(
-        "Gemini did not return all subtitle lines correctly."
+        `Gemini returned ${parsed.length} entries instead of ${items.length}.`
       );
     }
 
-    return translated;
+    const resultMap =
+      new Map();
+
+    for (
+      const item of parsed
+    ) {
+      if (
+        !item ||
+        typeof item.id !==
+          "number" ||
+        typeof item.text !==
+          "string"
+      ) {
+        throw new Error(
+          "Invalid item received from Gemini."
+        );
+      }
+
+      resultMap.set(
+        item.id,
+        item.text.trim()
+      );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Rebuild in original order
+    |--------------------------------------------------------------------------
+    */
+
+    const output =
+      items.map(
+        item => {
+          if (
+            !resultMap.has(
+              item.id
+            )
+          ) {
+            throw new Error(
+              `Missing translation for subtitle ID ${item.id}.`
+            );
+          }
+
+          return {
+            id: item.id,
+
+            text:
+              resultMap.get(
+                item.id
+              )
+          };
+        }
+      );
+
+    return output;
 
   } catch (error) {
     console.error(
@@ -353,8 +441,12 @@ ${numberedLines}
 
     if (
       message.includes("429") ||
-      message.includes("RESOURCE_EXHAUSTED") ||
-      message.toLowerCase().includes("quota")
+      message.includes(
+        "RESOURCE_EXHAUSTED"
+      ) ||
+      message
+        .toLowerCase()
+        .includes("quota")
     ) {
       throw new Error(
         "Gemini API quota exceeded. Please wait and try again later."
@@ -369,276 +461,119 @@ ${numberedLines}
 
 /*
 |--------------------------------------------------------------------------
-| SINGLE TEXT API
+| Translate Subtitle Cues
+|--------------------------------------------------------------------------
+|
+| This function receives complete subtitle objects.
+|
+| It does NOT alter:
+| - subtitle number
+| - timestamp
+|
+| It translates ONLY:
+| - text
+|
 |--------------------------------------------------------------------------
 */
 
-async function translateText(
-  text,
+async function translateSubtitleCues(
+  subtitles,
   srcLang,
   tgtLang,
   options = {}
 ) {
-  const targetMode =
-    options.targetMode || "native";
-
-  const cleanText =
-    String(text ?? "").trimEnd();
-
-  if (!cleanText.trim()) {
-    return text;
-  }
-
-  const cacheKey =
-    JSON.stringify({
-      cleanText,
-      srcLang,
-      tgtLang,
-      targetMode
-    });
-
-  if (cache.has(cacheKey)) {
-    return cache.get(cacheKey);
-  }
-
   const translated =
-    await translateWithGemini(
-      cleanText,
-      srcLang,
-      tgtLang,
-      targetMode
-    );
-
-  cache.set(
-    cacheKey,
-    translated
-  );
-
-  return translated;
-}
-
-/*
-|--------------------------------------------------------------------------
-| SUBTITLE TRANSLATION
-|--------------------------------------------------------------------------
-*/
-
-async function translateSubtitleText(
-  text,
-  srcLang,
-  tgtLang,
-  options = {}
-) {
-  const targetMode =
-    options.targetMode || "native";
-
-  const lines =
-    String(text ?? "").split("\n");
-
-  /*
-  |--------------------------------------------------------------------------
-  | Empty subtitle text
-  |--------------------------------------------------------------------------
-  */
-
-  if (!lines.length) {
-    return text;
-  }
-
-  /*
-  |--------------------------------------------------------------------------
-  | Keep blank lines separate
-  |--------------------------------------------------------------------------
-  */
-
-  const nonEmptyLines = [];
-
-  const lineMap = [];
-
-  for (
-    let i = 0;
-    i < lines.length;
-    i += 1
-  ) {
-    if (lines[i].trim()) {
-      lineMap.push(
-        nonEmptyLines.length
-      );
-
-      nonEmptyLines.push(
-        lines[i]
-      );
-    } else {
-      lineMap.push(null);
-    }
-  }
-
-  if (!nonEmptyLines.length) {
-    return text;
-  }
-
-  /*
-  |--------------------------------------------------------------------------
-  | Translate in batches of 1000
-  |--------------------------------------------------------------------------
-  */
-
-  const translatedNonEmptyLines = [];
+    [];
 
   for (
     let start = 0;
-    start < nonEmptyLines.length;
+    start < subtitles.length;
     start += BATCH_SIZE
   ) {
     const batch =
-      nonEmptyLines.slice(
+      subtitles.slice(
         start,
         start + BATCH_SIZE
       );
 
-    console.log(
-      `Translating batch ${
-        Math.floor(start / BATCH_SIZE) + 1
-      }`
-    );
+    /*
+    |--------------------------------------------------------------------------
+    | Prepare batch
+    |--------------------------------------------------------------------------
+    */
+
+    const items =
+      batch.map(
+        (subtitle, index) => ({
+          id:
+            start + index + 1,
+
+          text:
+            subtitle.text
+        })
+      );
 
     console.log(
-      `Subtitle lines ${
+      `Translating subtitle cues ${
         start + 1
       } to ${
         start + batch.length
+      } of ${
+        subtitles.length
       }`
     );
 
     /*
     |--------------------------------------------------------------------------
-    | Check cache
+    | ONE Gemini request for this batch
     |--------------------------------------------------------------------------
     */
 
-    const batchResults =
-      new Array(batch.length);
+    const batchResult =
+      await translateBatch(
+        items,
+        srcLang,
+        tgtLang,
+        options
+      );
 
-    const linesToTranslate = [];
-
-    const indexesToTranslate = [];
+    /*
+    |--------------------------------------------------------------------------
+    | Attach translations to
+    | original subtitle objects
+    |--------------------------------------------------------------------------
+    */
 
     for (
       let i = 0;
       i < batch.length;
       i += 1
     ) {
-      const cleanText =
-        String(batch[i]).trimEnd();
+      translated.push({
+        number:
+          batch[i].number,
 
-      const cacheKey =
-        JSON.stringify({
-          cleanText,
-          srcLang,
-          tgtLang,
-          targetMode
-        });
+        timestamp:
+          batch[i].timestamp,
 
-      if (cache.has(cacheKey)) {
-        batchResults[i] =
-          cache.get(cacheKey);
-      } else {
-        linesToTranslate.push(
-          cleanText
-        );
-
-        indexesToTranslate.push(i);
-      }
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Send uncached lines
-    |--------------------------------------------------------------------------
-    */
-
-    if (
-      linesToTranslate.length > 0
-    ) {
-      const translated =
-        await translateBatchWithGemini(
-          linesToTranslate,
-          srcLang,
-          tgtLang,
-          targetMode
-        );
-
-      for (
-        let i = 0;
-        i < translated.length;
-        i += 1
-      ) {
-        const originalIndex =
-          indexesToTranslate[i];
-
-        batchResults[
-          originalIndex
-        ] = translated[i];
-
-        const cacheKey =
-          JSON.stringify({
-            cleanText:
-              linesToTranslate[i],
-            srcLang,
-            tgtLang,
-            targetMode
-          });
-
-        cache.set(
-          cacheKey,
-          translated[i]
-        );
-      }
-    }
-
-    translatedNonEmptyLines.push(
-      ...batchResults
-    );
-  }
-
-  /*
-  |--------------------------------------------------------------------------
-  | Restore blank lines
-  |--------------------------------------------------------------------------
-  */
-
-  const output = [];
-
-  let translatedIndex = 0;
-
-  for (
-    let i = 0;
-    i < lines.length;
-    i += 1
-  ) {
-    if (!lines[i].trim()) {
-      output.push(lines[i]);
-    } else {
-      output.push(
-        translatedNonEmptyLines[
-          translatedIndex
-        ]
-      );
-
-      translatedIndex += 1;
+        text:
+          batchResult[i].text
+      });
     }
   }
 
-  return output.join("\n");
+  return translated;
 }
 
 /*
 |--------------------------------------------------------------------------
-| EXPORTS
+| Exports
 |--------------------------------------------------------------------------
 */
 
 module.exports = {
   translateText,
-  translateSubtitleText
+  translateBatch,
+  translateSubtitleCues,
+  BATCH_SIZE
 };
