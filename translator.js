@@ -24,7 +24,7 @@ if (!GEMINI_API_KEY) {
 */
 
 // 1000 subtitle cues = 1 Gemini API request
-const BATCH_SIZE = 1000;
+const BATCH_SIZE = 300;
 
 /*
 |--------------------------------------------------------------------------
