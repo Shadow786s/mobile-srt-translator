@@ -487,7 +487,7 @@ app.post(
       */
 
       const BATCH_SIZE =
-        1000;
+        300;
 
       const translated =
         [];
