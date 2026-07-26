@@ -10,163 +10,94 @@ const {
 } = require("./subtitle");
 
 const {
-  translateText,
-  translateSubtitleCues
+  translateSubtitleText,
+  translateText
 } = require("./translator");
 
 const app = express();
 
-/*
-|--------------------------------------------------------------------------
-| File Upload
-|--------------------------------------------------------------------------
-*/
-
 const upload = multer({
-  storage:
-    multer.memoryStorage(),
-
+  storage: multer.memoryStorage(),
   limits: {
-    fileSize:
-      50 * 1024 * 1024
+    fileSize: 50 * 1024 * 1024
   }
 });
-
-/*
-|--------------------------------------------------------------------------
-| Language Codes
-|--------------------------------------------------------------------------
-*/
 
 const COMMON_LANGUAGE_CODES = {
   auto: "auto",
 
-  English: "eng_Latn",
+  "English": "eng_Latn",
   "Chinese (Simplified)": "zho_Hans",
   "Chinese (Traditional)": "zho_Hant",
-  Hindi: "hin_Deva",
-  Japanese: "jpn_Jpan",
-  Korean: "kor_Hang",
-  Spanish: "spa_Latn",
-  French: "fra_Latn",
-  German: "deu_Latn",
-  Portuguese: "por_Latn",
-  Italian: "ita_Latn",
-  Russian: "rus_Cyrl",
-  Turkish: "tur_Latn",
-  Indonesian: "ind_Latn",
-  Vietnamese: "vie_Latn",
-  Bengali: "ben_Beng",
-  Urdu: "urd_Arab",
-  Marathi: "mar_Deva",
-  Tamil: "tam_Taml",
-  Telugu: "tel_Telu",
-  Thai: "tha_Thai",
-  Arabic: "arb_Arab"
+  "Hindi": "hin_Deva",
+  "Japanese": "jpn_Jpan",
+  "Korean": "kor_Hang",
+  "Spanish": "spa_Latn",
+  "French": "fra_Latn",
+  "German": "deu_Latn",
+  "Portuguese": "por_Latn",
+  "Italian": "ita_Latn",
+  "Russian": "rus_Cyrl",
+  "Turkish": "tur_Latn",
+  "Indonesian": "ind_Latn",
+  "Vietnamese": "vie_Latn",
+  "Bengali": "ben_Beng",
+  "Urdu": "urd_Arab",
+  "Marathi": "mar_Deva",
+  "Tamil": "tam_Taml",
+  "Telugu": "tel_Telu",
+  "Thai": "tha_Thai",
+  "Arabic": "arb_Arab"
 };
 
-/*
-|--------------------------------------------------------------------------
-| Language Detection
-|--------------------------------------------------------------------------
-*/
-
-function normalizeNewlines(
-  text
-) {
-  return String(
-    text || ""
-  )
-    .replace(
-      /\r\n/g,
-      "\n"
-    )
-    .replace(
-      /\r/g,
-      "\n"
-    );
+function normalizeNewlines(text) {
+  return String(text || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
 }
 
-function detectLanguageCode(
-  text
-) {
+function detectLanguageCode(text) {
   const sample =
-    normalizeNewlines(
-      text
-    ).slice(
-      0,
-      4000
-    );
+    normalizeNewlines(text)
+      .slice(0, 4000);
 
-  if (
-    /[\u4E00-\u9FFF]/.test(
-      sample
-    )
-  ) {
+  if (/[\u4E00-\u9FFF]/.test(sample)) {
     return "zho_Hans";
   }
 
-  if (
-    /[\u3040-\u30FF]/.test(
-      sample
-    )
-  ) {
+  if (/[\u3040-\u30FF]/.test(sample)) {
     return "jpn_Jpan";
   }
 
-  if (
-    /[\uAC00-\uD7AF]/.test(
-      sample
-    )
-  ) {
+  if (/[\uAC00-\uD7AF]/.test(sample)) {
     return "kor_Hang";
   }
 
-  if (
-    /[\u0900-\u097F]/.test(
-      sample
-    )
-  ) {
+  if (/[\u0900-\u097F]/.test(sample)) {
     return "hin_Deva";
   }
 
-  if (
-    /[\u0B80-\u0BFF]/.test(
-      sample
-    )
-  ) {
+  if (/[\u0B80-\u0BFF]/.test(sample)) {
     return "tam_Taml";
   }
 
-  if (
-    /[\u0C00-\u0C7F]/.test(
-      sample
-    )
-  ) {
+  if (/[\u0C00-\u0C7F]/.test(sample)) {
     return "tel_Telu";
   }
 
-  if (
-    /[\u0600-\u06FF]/.test(
-      sample
-    )
-  ) {
+  if (/[\u0A80-\u0AFF]/.test(sample)) {
+    return "guj_Gujr";
+  }
+
+  if (/[\u0600-\u06FF]/.test(sample)) {
     return "arb_Arab";
   }
 
-  if (
-    /[\u0400-\u04FF]/.test(
-      sample
-    )
-  ) {
+  if (/[\u0400-\u04FF]/.test(sample)) {
     return "rus_Cyrl";
   }
 
-  if (
-    /[\u0980-\u09FF]/.test(
-      sample
-    )
-  ) {
+  if (/[\u0980-\u09FF]/.test(sample)) {
     return "ben_Beng";
   }
 
@@ -177,35 +108,41 @@ function resolveLanguageCode(
   value,
   fallbackText = ""
 ) {
-  if (
-    !value ||
-    value === "auto"
-  ) {
+  if (!value || value === "auto") {
     return detectLanguageCode(
       fallbackText
     );
   }
 
-  if (
-    COMMON_LANGUAGE_CODES[
-      value
-    ]
-  ) {
-    return (
-      COMMON_LANGUAGE_CODES[
-        value
-      ]
-    );
+  if (COMMON_LANGUAGE_CODES[value]) {
+    return COMMON_LANGUAGE_CODES[value];
   }
 
-  return String(
-    value
-  ).trim();
+  return String(value).trim();
+}
+
+function progressPayload(
+  current,
+  total
+) {
+  const percent =
+    total === 0
+      ? 100
+      : Math.round(
+          (current / total) * 100
+        );
+
+  return {
+    type: "progress",
+    current,
+    total,
+    percent
+  };
 }
 
 /*
 |--------------------------------------------------------------------------
-| Express
+| Middleware
 |--------------------------------------------------------------------------
 */
 
@@ -217,10 +154,7 @@ app.use(
 
 app.use(
   express.static(
-    path.join(
-      __dirname,
-      "public"
-    )
+    path.join(__dirname, "public")
   )
 );
 
@@ -241,37 +175,29 @@ app.get(
 
 /*
 |--------------------------------------------------------------------------
-| Normal Text Translation
+| Text Translation
 |--------------------------------------------------------------------------
 */
 
 app.post(
   "/api/translate-text",
-  async (
-    req,
-    res
-  ) => {
+  async (req, res) => {
     try {
       const {
         text,
         from,
         to,
         targetMode
-      } =
-        req.body || {};
+      } = req.body || {};
 
       if (
         !text ||
-        !String(
-          text
-        ).trim()
+        !String(text).trim()
       ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              "Text is required."
-          });
+        return res.status(400).json({
+          error:
+            "Text is required."
+        });
       }
 
       const sourceCode =
@@ -299,26 +225,18 @@ app.post(
         );
 
       res.json({
-        success:
-          true,
-
+        success: true,
         translation
       });
 
-    } catch (
-      error
-    ) {
-      console.error(
-        error
-      );
+    } catch (error) {
+      console.error(error);
 
-      res
-        .status(500)
-        .json({
-          error:
-            error.message ||
-            "Translation failed."
-        });
+      res.status(500).json({
+        error:
+          error.message ||
+          "Translation failed."
+      });
     }
   }
 );
@@ -331,37 +249,15 @@ app.post(
 
 app.post(
   "/api/translate-srt",
-  upload.single(
-    "subtitle"
-  ),
-  async (
-    req,
-    res
-  ) => {
+  upload.single("subtitle"),
+  async (req, res) => {
     try {
-
-      /*
-      |--------------------------------------------------------------------------
-      | Check File
-      |--------------------------------------------------------------------------
-      */
-
-      if (
-        !req.file
-      ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              "Subtitle file missing."
-          });
+      if (!req.file) {
+        return res.status(400).json({
+          error:
+            "Subtitle file missing."
+        });
       }
-
-      /*
-      |--------------------------------------------------------------------------
-      | User Options
-      |--------------------------------------------------------------------------
-      */
 
       const from =
         req.body.from ||
@@ -375,12 +271,6 @@ app.post(
         req.body.targetMode ||
         "native";
 
-      /*
-      |--------------------------------------------------------------------------
-      | Read File
-      |--------------------------------------------------------------------------
-      */
-
       const extension =
         path.extname(
           req.file.originalname
@@ -391,44 +281,25 @@ app.post(
           "utf8"
         );
 
-      /*
-      |--------------------------------------------------------------------------
-      | Parse SRT/VTT
-      |--------------------------------------------------------------------------
-      */
-
       const subtitles =
         parseSubtitle(
           content,
           extension
         );
 
-      if (
-        !subtitles.length
-      ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              "No subtitle cues found."
-          });
+      if (!subtitles.length) {
+        return res.status(400).json({
+          error:
+            "No subtitle cues found."
+        });
       }
-
-      /*
-      |--------------------------------------------------------------------------
-      | Detect Source Language
-      |--------------------------------------------------------------------------
-      */
 
       const allText =
         subtitles
           .map(
-            subtitle =>
-              subtitle.text
+            (s) => s.text
           )
-          .join(
-            "\n"
-          );
+          .join("\n");
 
       const sourceCode =
         resolveLanguageCode(
@@ -444,13 +315,11 @@ app.post(
 
       /*
       |--------------------------------------------------------------------------
-      | Start Streaming Response
+      | Streaming response
       |--------------------------------------------------------------------------
       */
 
-      res.status(
-        200
-      );
+      res.status(200);
 
       res.setHeader(
         "Content-Type",
@@ -476,122 +345,78 @@ app.post(
 
       /*
       |--------------------------------------------------------------------------
-      | BATCH SIZE
-      |--------------------------------------------------------------------------
+      | IMPORTANT
       |
-      | The translator.js uses:
+      | translateSubtitleText() internally
+      | batches 300 lines per Gemini request.
       |
-      | 1000 subtitle cues = 1 Gemini request
-      |
+      | It returns the complete translated text.
       |--------------------------------------------------------------------------
       */
 
-      const BATCH_SIZE =
-        300;
+      const subtitleText =
+        subtitles
+          .map(
+            (s) => s.text
+          )
+          .join("\n");
+
+      const translatedText =
+        await translateSubtitleText(
+          subtitleText,
+          sourceCode,
+          targetCode,
+          {
+            targetMode
+          }
+        );
+
+      const translatedLines =
+        translatedText.split("\n");
+
+      /*
+      |--------------------------------------------------------------------------
+      | Rebuild subtitle objects
+      |--------------------------------------------------------------------------
+      |
+      | Original subtitle numbers and timestamps
+      | remain untouched.
+      |--------------------------------------------------------------------------
+      */
 
       const translated =
-        [];
+        subtitles.map(
+          (subtitle, index) => ({
+            number:
+              subtitle.number,
 
-      const total =
-        subtitles.length;
+            timestamp:
+              subtitle.timestamp,
+
+            text:
+              translatedLines[index] ??
+              subtitle.text
+          })
+        );
 
       /*
       |--------------------------------------------------------------------------
-      | Process Batches
+      | Send progress
       |--------------------------------------------------------------------------
       */
 
-      for (
-        let start = 0;
-        start < total;
-        start +=
-          BATCH_SIZE
-      ) {
-
-        const batch =
-          subtitles.slice(
-            start,
-            start +
-              BATCH_SIZE
-          );
-
-        console.log(
-          `Translating ${
-            start + 1
-          } - ${
-            start +
-            batch.length
-          } of ${
-            total
-          } subtitles`
-        );
-
-        /*
-        |--------------------------------------------------------------------------
-        | Send current batch to translator
-        |--------------------------------------------------------------------------
-        */
-
-        const translatedBatch =
-          await translateSubtitleCues(
-            batch,
-            sourceCode,
-            targetCode,
-            {
-              targetMode
-            }
-          );
-
-        /*
-        |--------------------------------------------------------------------------
-        | Add translated batch
-        |--------------------------------------------------------------------------
-        */
-
-        translated.push(
-          ...translatedBatch
-        );
-
-        /*
-        |--------------------------------------------------------------------------
-        | Progress
-        |--------------------------------------------------------------------------
-        */
-
-        const current =
-          Math.min(
-            start +
-              batch.length,
-            total
-          );
-
-        const percent =
-          Math.round(
-            (
-              current /
-              total
-            ) *
-              100
-          );
-
-        res.write(
-          JSON.stringify({
-            type:
-              "progress",
-
-            current,
-
-            total,
-
-            percent
-          }) +
-            "\n"
-        );
-      }
+      res.write(
+        JSON.stringify(
+          progressPayload(
+            translated.length,
+            subtitles.length
+          )
+        ) + "\n"
+      );
 
       /*
       |--------------------------------------------------------------------------
-      | Build Final SRT
+      | Build final SRT
       |--------------------------------------------------------------------------
       */
 
@@ -599,12 +424,6 @@ app.post(
         buildSRT(
           translated
         );
-
-      /*
-      |--------------------------------------------------------------------------
-      | Send Complete
-      |--------------------------------------------------------------------------
-      */
 
       res.write(
         JSON.stringify({
@@ -619,31 +438,23 @@ app.post(
 
           subtitleCount:
             translated.length
-        }) +
-          "\n"
+        }) + "\n"
       );
 
       res.end();
 
-    } catch (
-      error
-    ) {
-
+    } catch (error) {
       console.error(
         "SRT translation error:",
         error
       );
 
-      if (
-        !res.headersSent
-      ) {
-        return res
-          .status(500)
-          .json({
-            error:
-              error.message ||
-              "Translation failed."
-          });
+      if (!res.headersSent) {
+        return res.status(500).json({
+          error:
+            error.message ||
+            "Translation failed."
+        });
       }
 
       try {
@@ -655,10 +466,8 @@ app.post(
             message:
               error.message ||
               "Translation failed."
-          }) +
-            "\n"
+          }) + "\n"
         );
-
       } catch {}
 
       res.end();
@@ -668,13 +477,12 @@ app.post(
 
 /*
 |--------------------------------------------------------------------------
-| Start Server
+| Server
 |--------------------------------------------------------------------------
 */
 
 const PORT =
-  process.env.PORT ||
-  3000;
+  process.env.PORT || 3000;
 
 app.listen(
   PORT,
@@ -682,6 +490,13 @@ app.listen(
   () => {
     console.log(
       `Server running on port ${PORT}`
+    );
+
+    console.log(
+      `Gemini batch size: ${
+        process.env.BATCH_SIZE ||
+        300
+      } cues`
     );
   }
 );
